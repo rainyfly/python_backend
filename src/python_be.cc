@@ -24,7 +24,7 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "python_be.h"
-
+#include <unistd.h>
 #include "infer_payload.h"
 #include "pb_log.h"
 
@@ -767,7 +767,13 @@ ModelInstanceState::DecoupledMessageQueueMonitor()
     if (message->Command() == PYTHONSTUB_ExecuteResponse) {
       std::lock_guard<std::mutex> guard{mu_};
       received_message_ = std::move(message);
+      std::cout << "pid: " << std::to_string(getpid()) << " tid: " << std::to_string(gettid()) << " " 
+            << "engine: DecoupledMessageQueueMonitor: cv_.notify_one() begin" <<  std::endl
+            << std::flush;
       cv_.notify_one();
+      std::cout << "pid: " << std::to_string(getpid()) << " tid: " << std::to_string(gettid()) << " " 
+            << "engine: DecoupledMessageQueueMonitor: cv_.notify_one() end" <<  std::endl
+            << std::flush;
     } else if (message->Command() == PYTHONSTUB_ResponseSend) {
       std::shared_ptr<IPCMessage> response_send_message = std::move(message);
       std::packaged_task<void()> task([this, response_send_message] {
@@ -908,6 +914,9 @@ void
 ModelInstanceState::ResponseSendDecoupled(
     std::shared_ptr<IPCMessage> response_send_message)
 {
+  std::cout << "pid: " << std::to_string(getpid()) << " tid: " << std::to_string(gettid()) << " " 
+            << "engine:  Begin ResponseSendDecoupled" << std::endl
+            << std::flush;
   AllocatedSharedMemory<ResponseSendMessage> send_message =
       Stub()->ShmPool()->Load<ResponseSendMessage>(
           response_send_message->Args());
@@ -917,9 +926,21 @@ ModelInstanceState::ResponseSendDecoupled(
   std::unique_ptr<PbString> error_message;
   ScopedDefer _([send_message_payload] {
     {
+      std::cout << "pid: " << std::to_string(getpid()) << " tid: " << std::to_string(gettid()) << " " 
+            << "engine: before locked send_message_payload->mu " << std::endl
+            << std::flush;
       bi::scoped_lock<bi::interprocess_mutex> guard{send_message_payload->mu};
+      std::cout << "pid: " << std::to_string(getpid()) << " tid: " << std::to_string(gettid()) << " " 
+            << "engine: after locked send_message_payload->mu " << std::endl
+            << std::flush;
       send_message_payload->is_stub_turn = true;
+      std::cout << "pid: " << std::to_string(getpid()) << " tid: " << std::to_string(gettid()) << " " 
+            << "engine: cv.notify_all()" << std::endl
+            << std::flush;
       send_message_payload->cv.notify_all();
+      std::cout << "pid: " << std::to_string(getpid()) << " tid: " << std::to_string(gettid()) << " " 
+            << "engine: cv.notify_all()" << std::endl
+            << std::flush;
 
       while (send_message_payload->is_stub_turn) {
         send_message_payload->cv.wait(guard);
@@ -936,19 +957,32 @@ ModelInstanceState::ResponseSendDecoupled(
   }
 
   if (send_message_payload->response != 0) {
+    std::cout << "pid: " << std::to_string(getpid()) << " tid: " << std::to_string(gettid()) << " " 
+            << "engine:  send_message_payload->response != 0" << std::endl
+            << std::flush;
     std::unique_ptr<InferResponse> infer_response =
         InferResponse::LoadFromSharedMemory(
             Stub()->ShmPool(), send_message_payload->response,
             false /* open cuda ipc handle */);
-
+    std::cout << "pid: " << std::to_string(getpid()) << " tid: " << std::to_string(gettid()) << " " 
+            << "engine:  LoadFromSharedMemory Done" << std::endl
+            << std::flush;
     bool requires_deferred_callback = false;
     std::vector<std::pair<std::unique_ptr<PbMemory>, void*>> gpu_output_buffers;
+    std::cout << "pid: " << std::to_string(getpid()) << " tid: " << std::to_string(gettid()) << " " 
+            << "engine: infer_response->Send begin" << std::endl
+            << std::flush;
     std::shared_ptr<TRITONSERVER_Error*> error = infer_response->Send(
         response_factory, CudaStream(), requires_deferred_callback,
         send_message_payload->flags, Stub()->ShmPool(), gpu_output_buffers);
     SetErrorForResponseSendMessage(send_message_payload, error, error_message);
-
+    std::cout << "pid: " << std::to_string(getpid()) << " tid: " << std::to_string(gettid()) << " " 
+            << "engine: infer_response->Send done" << std::endl
+            << std::flush;
     if (requires_deferred_callback) {
+      std::cout << "pid: " << std::to_string(getpid()) << " tid: " << std::to_string(gettid()) << " " 
+            << "engine:  requires_deferred_callback" << std::endl
+            << std::flush;
       AllocatedSharedMemory<char> gpu_buffers_handle =
           Stub()->ShmPool()->Construct<char>(
               sizeof(uint64_t) +
@@ -971,6 +1005,9 @@ ModelInstanceState::ResponseSendDecoupled(
 
       // Additional round trip so that the stub can fill the GPU output buffers.
       {
+        std::cout << "pid: " << std::to_string(getpid()) << " tid: " << std::to_string(gettid()) << " " 
+            << "engine:  Additional round trip begin" << std::endl
+            << std::flush;
         bi::scoped_lock<bi::interprocess_mutex> guard{send_message_payload->mu};
         send_message_payload->is_stub_turn = true;
         send_message_payload->cv.notify_all();
@@ -978,6 +1015,9 @@ ModelInstanceState::ResponseSendDecoupled(
         while (send_message_payload->is_stub_turn) {
           send_message_payload->cv.wait(guard);
         }
+        std::cout << "pid: " << std::to_string(getpid()) << " tid: " << std::to_string(gettid()) << " " 
+            << "engine:  Additional round trip done" << std::endl
+            << std::flush;
       }
 
       index = 0;
@@ -1006,6 +1046,9 @@ ModelInstanceState::ResponseSendDecoupled(
       }
     }
   } else {
+    std::cout << "pid: " << std::to_string(getpid()) << " tid: " << std::to_string(gettid()) << " " 
+            << "engine:  send_message_payload->response == 0" << std::endl
+            << std::flush;
     TRITONSERVER_Error* error = TRITONBACKEND_ResponseFactorySendFlags(
         response_factory, send_message_payload->flags);
     SetErrorForResponseSendMessage(
@@ -1018,6 +1061,9 @@ ModelInstanceState::ResponseSendDecoupled(
           send_message_payload->response_factory_address));
     }
   }
+  std::cout << "pid: " << std::to_string(getpid()) << " tid: " << std::to_string(gettid()) << " " 
+            << "engine:  End ResponseSendDecoupled" << std::endl
+            << std::flush;
 }
 
 TRITONSERVER_Error*
@@ -1047,11 +1093,15 @@ ModelInstanceState::ProcessRequestsDecoupled(
 
   AllocatedSharedMemory<char> request_batch;
   std::shared_ptr<std::vector<TRITONBACKEND_Response*>> responses;
-
+  std::cout << "pid: " << std::to_string(getpid()) << " tid: " << std::to_string(gettid()) << " " 
+            << "before SaveRequestsToSharedMemory" << std::endl
+            << std::flush;
   RETURN_IF_ERROR(SaveRequestsToSharedMemory(
       requests, request_count, pb_inference_requests, request_batch,
       responses));
-
+  std::cout << "pid: " << std::to_string(getpid()) << " tid: " << std::to_string(gettid()) << " " 
+            << "after SaveRequestsToSharedMemory" << std::endl
+            << std::flush;
   uint64_t compute_start_ns = 0;
   SET_TIMESTAMP(compute_start_ns);
   reporter.SetComputeStartNs(compute_start_ns);
@@ -1066,11 +1116,22 @@ ModelInstanceState::ProcessRequestsDecoupled(
   ScopedDefer _([this] { Stub()->StubMessageQueue()->Push(DUMMY_MESSAGE); });
 
   {
+    std::cout << "pid: " << std::to_string(getpid()) << " tid: " << std::to_string(gettid()) << " " 
+            << "before Push ipc_message" << std::endl
+            << std::flush;
     std::unique_lock<std::mutex> guard{mu_};
     Stub()->StubMessageQueue()->Push(ipc_message->ShmHandle());
+    std::cout << "pid: " << std::to_string(getpid()) << " tid: " << std::to_string(gettid()) << " " 
+            << "After Push ipc_message" << std::endl
+            << std::flush;
     cv_.wait(guard, [this] { return received_message_ != nullptr; });
+    std::cout << "pid: " << std::to_string(getpid()) << " tid: " << std::to_string(gettid()) << " " 
+            << "Get received_message_" << std::endl
+            << std::flush;
   }
-
+  std::cout << "pid: " << std::to_string(getpid()) << " tid: " << std::to_string(gettid()) << " " 
+            << "Before Load ResponseBatch" << std::endl
+            << std::flush;
   AllocatedSharedMemory<ResponseBatch> response_batch =
       Stub()->ShmPool()->Load<ResponseBatch>(received_message_->Args());
 
@@ -1090,6 +1151,9 @@ ModelInstanceState::ProcessRequestsDecoupled(
     return TRITONSERVER_ErrorNew(
         TRITONSERVER_ERROR_INTERNAL, "Failed to process the requests.");
   }
+  std::cout << "pid: " << std::to_string(getpid()) << " tid: " << std::to_string(gettid()) << " " 
+            << "After Load ResponseBatch" << std::endl
+            << std::flush;
 
   return nullptr;  // success
 }
@@ -1482,6 +1546,9 @@ void
 ModelInstanceState::SendBLSDecoupledResponse(
     std::unique_ptr<InferResponse> infer_response)
 {
+  std::cout << "pid: " << std::to_string(getpid()) << " tid: " << std::to_string(gettid()) << " " 
+            << "engine: SendBLSDecoupledResponse begin " <<  std::endl
+            << std::flush;
   bool is_response_batch_set = false;
   ResponseBatch* response_batch = nullptr;
   std::unique_ptr<PbString> pb_error_message;
@@ -1517,19 +1584,53 @@ ModelInstanceState::SendBLSDecoupledResponse(
 
   ScopedDefer _([&ipc_message, response_batch] {
     {
+      std::cout << "pid: " << std::to_string(getpid()) << " tid: " << std::to_string(gettid()) << " " 
+            << "engine: final ipc_message->ResponseMutex() begin " <<  std::endl
+            << std::flush;
       bi::scoped_lock<bi::interprocess_mutex> lock{
           *(ipc_message->ResponseMutex())};
+      std::cout << "pid: " << std::to_string(getpid()) << " tid: " << std::to_string(gettid()) << " " 
+            << "engine: final ipc_message->ResponseMutex() end " <<  std::endl
+            << std::flush;
       response_batch->waiting_on_stub = false;
+      std::cout << "pid: " << std::to_string(getpid()) << " tid: " << std::to_string(gettid()) << " " 
+            << "engine: final ResponseCondition()->notify_all begin " <<  std::endl
+            << std::flush;
+      auto* cond = ipc_message->ResponseCondition();
+      if(cond == nullptr){
+        std::cout << "pid: " << std::to_string(getpid()) << " tid: " << std::to_string(gettid()) << " " 
+            << "engine: final ResponseCondition()->notify_all is nullptr " <<  std::endl
+            << std::flush;
+      } else{
       ipc_message->ResponseCondition()->notify_all();
+      std::cout << "pid: " << std::to_string(getpid()) << " tid: " << std::to_string(gettid()) << " " 
+            << "engine: final ResponseCondition()->notify_all end " <<  std::endl
+            << std::flush;
+      }
+    std::cout << "pid: " << std::to_string(getpid()) << " tid: " << std::to_string(gettid()) << " " 
+            << "engine: SendBLSDecoupledResponse done " <<  std::endl
+            << std::flush;
     }
   });
 
   {
+    std::cout << "pid: " << std::to_string(getpid()) << " tid: " << std::to_string(gettid()) << " " 
+            << "engine: ipc_message->ResponseMutex() begin " <<  std::endl
+            << std::flush;
     bi::scoped_lock<bi::interprocess_mutex> lock{
         *(ipc_message->ResponseMutex())};
+    std::cout << "pid: " << std::to_string(getpid()) << " tid: " << std::to_string(gettid()) << " " 
+            << "engine: ipc_message->ResponseMutex() end " <<  std::endl
+            << std::flush;
     Stub()->ParentToStubMessageQueue()->Push(ipc_message->ShmHandle());
     while (!response_batch->waiting_on_stub) {
+       std::cout << "pid: " << std::to_string(getpid()) << " tid: " << std::to_string(gettid()) << " " 
+            << "engine: ipc_message->ResponseCondition()->wait(lock) begin " <<  std::endl
+            << std::flush;
       ipc_message->ResponseCondition()->wait(lock);
+      std::cout << "pid: " << std::to_string(getpid()) << " tid: " << std::to_string(gettid()) << " " 
+            << "engine: ipc_message->ResponseCondition()->wait(lock) end " <<  std::endl
+            << std::flush;
     }
   }
 }
@@ -1766,9 +1867,9 @@ TRITONBACKEND_Initialize(TRITONBACKEND_Backend* backend)
   backend_state->shm_default_byte_size = 64 * 1024 * 1024;  // 64 MBs
   backend_state->shm_growth_byte_size = 64 * 1024 * 1024;   // 64 MBs
   backend_state->stub_timeout_seconds = 30;
-  backend_state->shm_message_queue_size = 1000;
+  backend_state->shm_message_queue_size = 10000;
   backend_state->number_of_instance_inits = 0;
-  backend_state->thread_pool_size = 32;
+  backend_state->thread_pool_size = 320;
   backend_state->shared_memory_region_prefix =
       "triton_python_backend_shm_region_";
 

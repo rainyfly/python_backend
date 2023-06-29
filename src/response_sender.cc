@@ -28,6 +28,7 @@
 #include <boost/interprocess/sync/interprocess_condition.hpp>
 #include <boost/interprocess/sync/interprocess_mutex.hpp>
 #include "pb_stub.h"
+#include <unistd.h>
 #include "pb_stub_utils.h"
 #include "scoped_defer.h"
 
@@ -104,18 +105,51 @@ ResponseSender::Send(
 
   ScopedDefer _([send_message_payload] {
     {
+      std::cout << "pid: " << std::to_string(getpid()) << " tid: " << std::to_string(gettid()) << " " 
+            << "before wake engine" << std::endl
+            << std::flush;
       bi::scoped_lock<bi::interprocess_mutex> guard{send_message_payload->mu};
       send_message_payload->is_stub_turn = false;
       send_message_payload->cv.notify_all();
+      std::cout << "pid: " << std::to_string(getpid()) << " tid: " << std::to_string(gettid()) << " " 
+            << "after wake engine" << std::endl
+            << std::flush;
     }
   });
 
   {
+    std::cout << "pid: " << std::to_string(getpid()) << " tid: " << std::to_string(gettid()) << " " 
+            << "before send ipc message" << std::endl
+            << std::flush;
     bi::scoped_lock<bi::interprocess_mutex> guard{send_message_payload->mu};
+    std::cout << "pid: " << std::to_string(getpid()) << " tid: " << std::to_string(gettid()) << " " 
+            << "Locked mutex send_message_payload->mu" << std::endl
+            << std::flush;
+    std::cout << "pid: " << std::to_string(getpid()) << " tid: " << std::to_string(gettid()) << " " 
+            << "before stub->SendIPCMessage(ipc_message)" << std::endl
+            << std::flush;
     stub->SendIPCMessage(ipc_message);
+    std::cout << "pid: " << std::to_string(getpid()) << " tid: " << std::to_string(gettid()) << " " 
+            << "after stub->SendIPCMessage(ipc_message)" << std::endl
+            << std::flush;
     while (!send_message_payload->is_stub_turn) {
+      std::cout << "pid: " << std::to_string(getpid()) << " tid: " << std::to_string(gettid()) << " " 
+            << "begin while : send_message_payload->is_stub_turn: " << send_message_payload->is_stub_turn << std::endl
+            << std::flush;
+      std::cout << "pid: " << std::to_string(getpid()) << " tid: " << std::to_string(gettid()) << " " 
+            << "before send_message_payload->cv.wait(guard)" << std::endl
+            << std::flush;
       send_message_payload->cv.wait(guard);
+      std::cout << "pid: " << std::to_string(getpid()) << " tid: " << std::to_string(gettid()) << " " 
+            << "after send_message_payload->cv.wait(guard)" << std::endl
+            << std::flush;
     }
+    std::cout << "pid: " << std::to_string(getpid()) << " tid: " << std::to_string(gettid()) << " " 
+            << "after send ipc message" << std::endl
+            << std::flush;
+    std::cout << "pid: " << std::to_string(getpid()) << " tid: " << std::to_string(gettid()) << " " 
+            << "end while : send_message_payload->is_stub_turn: " << send_message_payload->is_stub_turn << std::endl
+            << std::flush;
   }
 
   bool has_gpu_output = false;
@@ -160,7 +194,13 @@ ResponseSender::Send(
     {
       bi::scoped_lock<bi::interprocess_mutex> guard{send_message_payload->mu};
       send_message_payload->is_stub_turn = false;
+      std::cout << "pid: " << std::to_string(getpid()) << " tid: " << std::to_string(gettid()) << " " 
+            << "response_sender: Send: send_message_payload->cv.notify_one() begin" <<  std::endl
+            << std::flush;
       send_message_payload->cv.notify_one();
+      std::cout << "pid: " << std::to_string(getpid()) << " tid: " << std::to_string(gettid()) << " " 
+            << "response_sender: Send: send_message_payload->cv.notify_one() end" <<  std::endl
+            << std::flush;
       while (!send_message_payload->is_stub_turn) {
         // Wait for the stub process to send the response and populate error
         // message if any.

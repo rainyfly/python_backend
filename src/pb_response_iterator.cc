@@ -27,6 +27,7 @@
 #include "pb_response_iterator.h"
 #include <chrono>
 #include "pb_stub.h"
+#include<unistd.h>
 
 #include <pybind11/embed.h>
 namespace py = pybind11;
@@ -64,24 +65,52 @@ ResponseIterator::~ResponseIterator()
 std::shared_ptr<InferResponse>
 ResponseIterator::Next()
 {
+  std::cout << "pid: " << std::to_string(getpid()) << " tid: " << std::to_string(gettid()) << " " 
+            << "ResponseIterator: Begin to iterate responses " <<  std::endl
+            << std::flush;
   if (is_finished_) {
+    std::cout << "pid: " << std::to_string(getpid()) << " tid: " << std::to_string(gettid()) << " " 
+            << "ResponseIterator: is_finished True"  <<  std::endl
+            << std::flush;
     if (!is_cleared_) {
       Clear();
     }
 
     if (idx_ < responses_.size()) {
+      std::cout << "pid: " << std::to_string(getpid()) << " tid: " << std::to_string(gettid()) << " " 
+            << "ResponseIterator: Return responses_[" << std::to_string(idx_) << "]"  <<  std::endl
+            << std::flush;
       return responses_[idx_++];
     } else {
+      std::cout << "pid: " << std::to_string(getpid()) << " tid: " << std::to_string(gettid()) << " " 
+            << "ResponseIterator: Iteration is done for the responses. " <<  std::endl
+            << std::flush;
       throw py::stop_iteration("Iteration is done for the responses.");
     }
   } else {
+    std::cout << "pid: " << std::to_string(getpid()) << " tid: " << std::to_string(gettid()) << " " 
+            << "ResponseIterator: is_finished False"  <<  std::endl
+            << std::flush;
     std::shared_ptr<InferResponse> response;
     {
       {
+        std::cout << "pid: " << std::to_string(getpid()) << " tid: " << std::to_string(gettid()) << " " 
+            << "ResponseIterator: std::unique_lock<std::mutex> lock{mu_} begin"  <<  std::endl
+            << std::flush;
         std::unique_lock<std::mutex> lock{mu_};
+        std::cout << "pid: " << std::to_string(getpid()) << " tid: " << std::to_string(gettid()) << " " 
+            << "ResponseIterator: std::unique_lock<std::mutex> lock{mu_} end"  <<  std::endl
+            << std::flush;
         while (response_buffer_.empty()) {
           py::gil_scoped_release release;
+          std::cout << "pid: " << std::to_string(getpid()) << " tid: " << std::to_string(gettid()) << " " 
+            << "ResponseIterator: cv_.wait(lock) begin"  <<  std::endl
+            << std::flush;
           cv_.wait(lock);
+          std::cout << "pid: " << std::to_string(getpid()) << " tid: " << std::to_string(gettid()) << " " 
+            << "ResponseIterator: cv_.wait(lock) end"  <<  std::endl
+            << std::flush;
+          // sleep(0.1);
         }
         response = response_buffer_.front();
         response_buffer_.pop();
@@ -117,10 +146,22 @@ void
 ResponseIterator::EnqueueResponse(std::shared_ptr<InferResponse> infer_response)
 {
   {
+    std::cout << "pid: " << std::to_string(getpid()) << " tid: " << std::to_string(gettid()) << " " 
+            << "ResponseIterator: EnqueueResponse: std::lock_guard<std::mutex> lock{mu_}; begin" <<  std::endl
+            << std::flush;
     std::lock_guard<std::mutex> lock{mu_};
     response_buffer_.push(infer_response);
+    std::cout << "pid: " << std::to_string(getpid()) << " tid: " << std::to_string(gettid()) << " " 
+            << "ResponseIterator: EnqueueResponse: std::lock_guard<std::mutex> lock{mu_}; end" <<  std::endl
+            << std::flush;
   }
+  std::cout << "pid: " << std::to_string(getpid()) << " tid: " << std::to_string(gettid()) << " " 
+            << "ResponseIterator: EnqueueResponse: cv_.notify_one() begin" <<  std::endl
+            << std::flush;
   cv_.notify_one();
+  std::cout << "pid: " << std::to_string(getpid()) << " tid: " << std::to_string(gettid()) << " " 
+            << "ResponseIterator: EnqueueResponse: cv_.notify_one() end" <<  std::endl
+            << std::flush;
 }
 
 void*

@@ -29,6 +29,7 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/wait.h>
+#include <unistd.h>
 
 #include <atomic>
 #include <boost/interprocess/sync/interprocess_condition.hpp>
@@ -211,6 +212,9 @@ Stub::RunCommand()
   }
   switch (ipc_message->Command()) {
     case PYTHONSTUB_CommandType::PYTHONSTUB_AutoCompleteRequest: {
+      std::cout << "pid: " << std::to_string(getpid()) << " tid: " << std::to_string(gettid()) << " " 
+            << "PYTHONSTUB_CommandType::PYTHONSTUB_AutoCompleteRequest" << std::endl
+            << std::flush;
       // Only run this case when auto complete was requested by
       // Triton core.
       bool has_exception = false;
@@ -278,6 +282,9 @@ Stub::RunCommand()
       }
     } break;
     case PYTHONSTUB_CommandType::PYTHONSTUB_InitializeRequest: {
+      std::cout << "pid: " << std::to_string(getpid()) << " tid: " << std::to_string(gettid()) << " " 
+            << "PYTHONSTUB_CommandType::PYTHONSTUB_InitializeRequest" << std::endl
+            << std::flush;
       bool has_exception = false;
       std::string error_string;
 
@@ -336,6 +343,9 @@ Stub::RunCommand()
       }
     } break;
     case PYTHONSTUB_CommandType::PYTHONSTUB_ExecuteRequest: {
+      std::cout << "pid: " << std::to_string(getpid()) << " tid: " << std::to_string(gettid()) << " " 
+            << "PYTHONSTUB_CommandType::PYTHONSTUB_ExecuteRequest" << std::endl
+            << std::flush;
       AllocatedSharedMemory<char> request_batch =
           shm_pool_->Load<char>(ipc_message->Args());
       RequestBatch* request_batch_shm_ptr =
@@ -348,6 +358,9 @@ Stub::RunCommand()
 
     } break;
     case PYTHONSTUB_CommandType::PYTHONSTUB_FinalizeRequest:
+    std::cout << "pid: " << std::to_string(getpid()) << " tid: " << std::to_string(gettid()) << " " 
+            << "PYTHONSTUB_CommandType::PYTHONSTUB_FinalizeRequest" << std::endl
+            << std::flush;
       ipc_message->Command() = PYTHONSTUB_FinalizeResponse;
       SendIPCMessage(ipc_message);
       return true;  // Terminate the stub process
@@ -885,7 +898,13 @@ Stub::TerminateStubToParentQueueMonitor()
     log_request_buffer_.push(DUMMY_MESSAGE);
     bls_response_cleanup_buffer_.push(DUMMY_MESSAGE);
   }
+  std::cout << "pid: " << std::to_string(getpid()) << " tid: " << std::to_string(gettid()) << " " 
+            << "pb_stub: TerminateStubToParentQueueMonitor: stub_to_parent_message_cv_.notify_one begin" <<  std::endl
+            << std::flush;
   stub_to_parent_message_cv_.notify_one();
+  std::cout << "pid: " << std::to_string(getpid()) << " tid: " << std::to_string(gettid()) << " " 
+            << "pb_stub: TerminateStubToParentQueueMonitor: stub_to_parent_message_cv_.notify_one end" <<  std::endl
+            << std::flush;
   stub_to_parent_queue_monitor_.join();
 }
 
@@ -896,7 +915,13 @@ Stub::EnqueueLogRequest(std::unique_ptr<PbLog>& log_ptr)
     std::lock_guard<std::mutex> guard{stub_to_parent_message_mu_};
     log_request_buffer_.push(std::move(log_ptr));
   }
+  std::cout << "pid: " << std::to_string(getpid()) << " tid: " << std::to_string(gettid()) << " " 
+            << "pb_stub: EnqueueLogRequest: stub_to_parent_message_cv_.notify_one begin" <<  std::endl
+            << std::flush;
   stub_to_parent_message_cv_.notify_one();
+  std::cout << "pid: " << std::to_string(getpid()) << " tid: " << std::to_string(gettid()) << " " 
+            << "pb_stub: EnqueueLogRequest: stub_to_parent_message_cv_.notify_one end" <<  std::endl
+            << std::flush;
 }
 
 void
@@ -1033,7 +1058,11 @@ Stub::TerminateParentToStubQueueMonitor()
 void
 Stub::ParentToStubMQMonitor()
 {
+  std::cout << "pid: " << std::to_string(getpid()) << " tid: " << std::to_string(gettid()) << " " 
+            << "Stub: ParentToStubMQMonitor  begin" <<  std::endl
+            << std::flush;
   while (parent_to_stub_thread_) {
+    
     bi::managed_external_buffer::handle_t handle = parent_to_stub_mq_->Pop();
     if (handle == DUMMY_MESSAGE) {
       break;
@@ -1047,6 +1076,9 @@ Stub::ParentToStubMQMonitor()
     PythonBackendException pb_exception(std::string{});
 
     try {
+      std::cout << "pid: " << std::to_string(getpid()) << " tid: " << std::to_string(gettid()) << " " 
+            << "Stub: ParentToStubMQMonitor:  LoadFromSharedMemory begin" <<  std::endl
+            << std::flush;
       ipc_message = IPCMessage::LoadFromSharedMemory(shm_pool_, handle);
       AllocatedSharedMemory<char> response_batch_shm =
           shm_pool_->Load<char>(ipc_message->Args());
@@ -1092,6 +1124,9 @@ Stub::ParentToStubMQMonitor()
             std::make_shared<PbError>(
                 "An error occurred while performing BLS request."));
       }
+    std::cout << "pid: " << std::to_string(getpid()) << " tid: " << std::to_string(gettid()) << " " 
+            << "Stub: ParentToStubMQMonitor:  LoadFromSharedMemory done" <<  std::endl
+            << std::flush;
     }
     catch (const PythonBackendException& pb_exception) {
       infer_response = std::make_unique<InferResponse>(
@@ -1103,14 +1138,26 @@ Stub::ParentToStubMQMonitor()
       std::lock_guard<std::mutex> lock(response_iterator_map_mu_);
       if (response_iterator_map_.find(infer_response->Id()) !=
           response_iterator_map_.end()) {
+        std::cout << "pid: " << std::to_string(getpid()) << " tid: " << std::to_string(gettid()) << " " 
+            << "Stub: ParentToStubMQMonitor: response_iterator_map_[infer_response->Id()]->EnqueueResponse(std::move(infer_response));  begin" <<  std::endl
+            << std::flush;
         response_iterator_map_[infer_response->Id()]->EnqueueResponse(
             std::move(infer_response));
+        std::cout << "pid: " << std::to_string(getpid()) << " tid: " << std::to_string(gettid()) << " " 
+            << "Stub: ParentToStubMQMonitor: response_iterator_map_[infer_response->Id()]->EnqueueResponse(std::move(infer_response));  end" <<  std::endl
+            << std::flush;
       } else {
+        std::cout << "pid: " << std::to_string(getpid()) << " tid: " << std::to_string(gettid()) << " " 
+            << "Stub: ParentToStubMQMonitor: response_iterator_map_.insert  begin" <<  std::endl
+            << std::flush;
         auto response_iterator =
             std::make_shared<ResponseIterator>(std::move(infer_response));
         response_iterator_map_.insert(
             std::pair<void*, std::shared_ptr<ResponseIterator>>(
                 response_iterator->Id(), response_iterator));
+        std::cout << "pid: " << std::to_string(getpid()) << " tid: " << std::to_string(gettid()) << " " 
+            << "Stub: ParentToStubMQMonitor: response_iterator_map_.insert  end" <<  std::endl
+            << std::flush;
       }
     }
 
@@ -1120,10 +1167,20 @@ Stub::ParentToStubMQMonitor()
       response_batch->waiting_on_stub = true;
       ipc_message->ResponseCondition()->notify_all();
       while (response_batch->waiting_on_stub) {
+        std::cout << "pid: " << std::to_string(getpid()) << " tid: " << std::to_string(gettid()) << " " 
+            << "Stub: ParentToStubMQMonitor: ipc_message->ResponseCondition()->wait(lock)  begin" <<  std::endl
+            << std::flush;
         ipc_message->ResponseCondition()->wait(lock);
+        std::cout << "pid: " << std::to_string(getpid()) << " tid: " << std::to_string(gettid()) << " " 
+            << "Stub: ParentToStubMQMonitor: ipc_message->ResponseCondition()->wait(lock)  end" <<  std::endl
+            << std::flush;
+        break;
       }
     }
   }
+  std::cout << "pid: " << std::to_string(getpid()) << " tid: " << std::to_string(gettid()) << " " 
+            << "Stub: ParentToStubMQMonitor end" <<  std::endl
+            << std::flush;
 }
 
 bool

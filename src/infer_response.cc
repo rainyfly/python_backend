@@ -25,6 +25,7 @@
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "infer_response.h"
+#include <unistd.h>
 
 #ifdef TRITON_PB_STUB
 #include <pybind11/embed.h>
@@ -210,6 +211,9 @@ InferResponse::Send(
     const std::set<std::string>& requested_output_names,
     TRITONBACKEND_Response* response)
 {
+  std::cout << "pid: " << std::to_string(getpid()) << " tid: " << std::to_string(gettid()) << " " 
+            << "engine: InferResponse::Send begin" << std::endl
+            << std::flush;
   std::shared_ptr<TRITONSERVER_Error*> response_error =
       WrapTritonErrorInSharedPtr(nullptr);
   std::unique_ptr<ScopedDefer> response_error_handling;
@@ -232,16 +236,28 @@ InferResponse::Send(
       [response, response_error, flags, response_factory,
        destruct_response_factor] {
         if (response != nullptr) {
+          std::cout << "pid: " << std::to_string(getpid()) << " tid: " << std::to_string(gettid()) << " " 
+            << "engine: TRITONBACKEND_ResponseSend begin" << std::endl
+            << std::flush;
           LOG_IF_ERROR(
               TRITONBACKEND_ResponseSend(response, flags, *response_error),
               "failed to send the response.");
+          std::cout << "pid: " << std::to_string(getpid()) << " tid: " << std::to_string(gettid()) << " " 
+            << "engine: TRITONBACKEND_ResponseSend end" << std::endl
+            << std::flush;
           if (flags == TRITONSERVER_RESPONSE_COMPLETE_FINAL &&
               destruct_response_factor) {
+            std::cout << "pid: " << std::to_string(getpid()) << " tid: " << std::to_string(gettid()) << " " 
+            << "engine: ResponseFactoryDeleter begin" << std::endl
+            << std::flush;
             std::unique_ptr<
                 TRITONBACKEND_ResponseFactory, backend::ResponseFactoryDeleter>
             response_factory_ptr(
                 reinterpret_cast<TRITONBACKEND_ResponseFactory*>(
                     response_factory));
+            std::cout << "pid: " << std::to_string(getpid()) << " tid: " << std::to_string(gettid()) << " " 
+            << "engine: ResponseFactoryDeleter end" << std::endl
+            << std::flush;
           }
         }
       });
@@ -272,6 +288,9 @@ InferResponse::Send(
     int64_t actual_memory_type_id = src_memory_type_id;
 
     if (actual_memory_type == TRITONSERVER_MEMORY_GPU) {
+      std::cout << "pid: " << std::to_string(getpid()) << " tid: " << std::to_string(gettid()) << " " 
+            << "engine: in actual_memory_type == TRITONSERVER_MEMORY_GPU" << std::endl
+            << std::flush;
       requires_deferred_callback = true;
     }
 
@@ -340,6 +359,9 @@ InferResponse::Send(
     }
 
     if (src_memory_type != TRITONSERVER_MEMORY_GPU) {
+      std::cout << "pid: " << std::to_string(getpid()) << " tid: " << std::to_string(gettid()) << " " 
+            << "engine: CopyBuffer begin" << std::endl
+            << std::flush;
       SET_ERROR_AND_RETURN(
           response_error,
           CopyBuffer(
@@ -347,6 +369,9 @@ InferResponse::Send(
               src_memory_type_id, actual_memory_type, actual_memory_type_id,
               output_tensor->ByteSize(), output_tensor->DataPtr(), buffer,
               reinterpret_cast<cudaStream_t>(cuda_stream), &cuda_used));
+      std::cout << "pid: " << std::to_string(getpid()) << " tid: " << std::to_string(gettid()) << " "  
+            << "engine: CopyBuffer end" << std::endl
+            << std::flush;
     }
 
     cuda_copy |= cuda_used;
@@ -354,12 +379,16 @@ InferResponse::Send(
 
 #ifdef TRITON_ENABLE_GPU
   if (cuda_copy) {
+    std::cout << "pid: " << std::to_string(getpid()) << " tid: " << std::to_string(gettid()) << " " 
+            << "engine: cudaStreamSynchronize" << std::endl
+            << std::flush;
     cudaStreamSynchronize(reinterpret_cast<cudaStream_t>(cuda_stream));
   }
 #endif  // TRITON_ENABLE_GPU
 
   return response_error;
 }
+// end InferenceResponse::Send
 #endif
 
 #ifndef TRITON_PB_STUB

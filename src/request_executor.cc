@@ -31,6 +31,7 @@
 #include "scoped_defer.h"
 #include "triton/backend/backend_common.h"
 #include "triton/core/tritonserver.h"
+#include <unistd.h>
 
 namespace triton { namespace backend { namespace python {
 
@@ -77,6 +78,9 @@ void
 InferResponseComplete(
     TRITONSERVER_InferenceResponse* response, const uint32_t flags, void* userp)
 {
+  std::cout << "pid: " << std::to_string(getpid()) << " tid: " << std::to_string(gettid()) << " " 
+            << "engine: InferResponseComplete begin" << std::endl
+            << std::flush;
   auto p = reinterpret_cast<InferPayload*>(userp);
   std::unique_ptr<InferResponse> infer_response;
   std::vector<std::shared_ptr<PbTensor>> output_tensors;
@@ -89,7 +93,9 @@ InferResponseComplete(
       uint32_t output_count;
       THROW_IF_TRITON_ERROR(
           TRITONSERVER_InferenceResponseOutputCount(response, &output_count));
-
+      std::cout << "pid: " << std::to_string(getpid()) << " tid: " << std::to_string(gettid()) << " " 
+            << "engine: InferResponseComplete output_count: " << std::to_string(output_count) <<  std::endl
+            << std::flush;
       for (uint32_t idx = 0; idx < output_count; ++idx) {
         const char* cname;
         TRITONSERVER_DataType datatype;
@@ -152,14 +158,26 @@ InferResponseComplete(
     } else {
       if ((flags & TRITONSERVER_RESPONSE_COMPLETE_FINAL) == 0) {
         // Not the last reponse.
+        std::cout << "pid: " << std::to_string(getpid()) << " tid: " << std::to_string(gettid()) << " " 
+            << "engine: InferResponseComplete before make response " <<  std::endl
+            << std::flush;
         infer_response = std::make_unique<InferResponse>(
             output_tensors, pb_error, false /* is_last_response */,
             userp /* id */);
+        std::cout << "pid: " << std::to_string(getpid()) << " tid: " << std::to_string(gettid()) << " " 
+            << "engine: InferResponseComplete end make response " <<  std::endl
+            << std::flush;
       } else {
+        std::cout << "pid: " << std::to_string(getpid()) << " tid: " << std::to_string(gettid()) << " " 
+            << "engine: InferResponseComplete before make last response " <<  std::endl
+            << std::flush;
         // The last response.
         infer_response = std::make_unique<InferResponse>(
             output_tensors, pb_error, true /* is_last_response */,
             userp /* id */);
+        std::cout << "pid: " << std::to_string(getpid()) << " tid: " << std::to_string(gettid()) << " " 
+            << "engine: InferResponseComplete end make last response " <<  std::endl
+            << std::flush;
       }
     }
 
@@ -180,7 +198,13 @@ InferResponseComplete(
   // Only set value to the promise with the first response. Call the callback
   // function to send decoupled response to the stub.
   if (p->IsPromiseSet()) {
+    std::cout << "pid: " << std::to_string(getpid()) << " tid: " << std::to_string(gettid()) << " " 
+            << "engine: InferResponseComplete before  p->Callback(std::move(infer_response))" <<  std::endl
+            << std::flush;
     p->Callback(std::move(infer_response));
+    std::cout << "pid: " << std::to_string(getpid()) << " tid: " << std::to_string(gettid()) << " " 
+            << "engine: InferResponseComplete end  p->Callback(std::move(infer_response))" <<  std::endl
+            << std::flush;
   } else {
     p->SetValueForPrevPromise(std::move(infer_response));
   }
